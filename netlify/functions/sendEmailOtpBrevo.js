@@ -1,63 +1,88 @@
-export async function handler(event) {
+exports.handler = async (event) => {
   try {
+    // Allow only POST
     if (event.httpMethod !== "POST") {
       return {
         statusCode: 405,
-        body: "Method Not Allowed",
+        body: JSON.stringify({ error: "Method Not Allowed" }),
       };
     }
 
-    const { email } = JSON.parse(event.body || "{}");
+    const { email, otp } = JSON.parse(event.body || "{}");
 
-    if (!email) {
+    if (!email || !otp) {
       return {
         statusCode: 400,
-        body: JSON.stringify({ error: "Email required" }),
+        body: JSON.stringify({ error: "Email and OTP are required" }),
       };
     }
 
-    const otp = Math.floor(100000 + Math.random() * 900000);
+    const apiKey = process.env.BREVO_API_KEY;
+    const senderEmail = process.env.BREVO_SENDER;
+
+    // 🔴 CRITICAL CHECKS
+    if (!apiKey) {
+      return {
+        statusCode: 500,
+        body: JSON.stringify({ error: "BREVO_API_KEY is missing" }),
+      };
+    }
+
+    if (!senderEmail) {
+      return {
+        statusCode: 500,
+        body: JSON.stringify({ error: "BREVO_SENDER is missing" }),
+      };
+    }
+
+    const payload = {
+      sender: {
+        name: "Crown Asia Investment",
+        email: senderEmail,
+      },
+      to: [
+        {
+          email: email,
+        },
+      ],
+      subject: "Your Email Verification Code",
+      htmlContent: `
+        <div style="font-family:Arial,sans-serif">
+          <h2>Email Verification</h2>
+          <p>Your OTP code is:</p>
+          <h1 style="letter-spacing:4px">${otp}</h1>
+          <p>This code will expire in 5 minutes.</p>
+          <br/>
+          <small>© Crown Asia Investment</small>
+        </div>
+      `,
+    };
 
     const response = await fetch("https://api.brevo.com/v3/smtp/email", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "api-key": process.env.BREVO_API_KEY,
+        "api-key": apiKey,
       },
-      body: JSON.stringify({
-        sender: {
-          name: process.env.BREVO_SENDER_NAME || "Crown Asia",
-          email: process.env.BREVO_SENDER_EMAIL,
-        },
-        to: [{ email }],
-        subject: "Your OTP Code",
-        htmlContent: `
-          <div style="font-family:Arial">
-            <h2>Email Verification</h2>
-            <p>Your OTP code is:</p>
-            <h1>${otp}</h1>
-            <p>This OTP expires in 5 minutes.</p>
-          </div>
-        `,
-      }),
+      body: JSON.stringify(payload),
     });
 
-    const result = await response.text();
+    const resultText = await response.text();
 
     if (!response.ok) {
-      console.error("Brevo API error:", result);
+      console.error("Brevo API error:", resultText);
       return {
-        statusCode: 500,
-        body: JSON.stringify({ error: result }),
+        statusCode: response.status,
+        body: JSON.stringify({
+          error: "Brevo API error",
+          details: resultText,
+        }),
       };
     }
 
     return {
       statusCode: 200,
-      body: JSON.stringify({
-        success: true,
-        otp, // TEMP for testing
-      }),
+      body: JSON.stringify({ success: true }),
     };
   } catch (err) {
     console.error("Function error:", err);
@@ -66,4 +91,4 @@ export async function handler(event) {
       body: JSON.stringify({ error: err.message }),
     };
   }
-}
+};
