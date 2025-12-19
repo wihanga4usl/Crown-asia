@@ -1,13 +1,18 @@
-import fetch from "node-fetch";
-
 export async function handler(event) {
   try {
-    const { email } = JSON.parse(event.body);
+    if (event.httpMethod !== "POST") {
+      return {
+        statusCode: 405,
+        body: "Method Not Allowed",
+      };
+    }
+
+    const { email } = JSON.parse(event.body || "{}");
 
     if (!email) {
       return {
         statusCode: 400,
-        body: JSON.stringify({ error: "Email is required" }),
+        body: JSON.stringify({ error: "Email required" }),
       };
     }
 
@@ -21,35 +26,41 @@ export async function handler(event) {
       },
       body: JSON.stringify({
         sender: {
-          name: process.env.BREVO_SENDER_NAME,
+          name: process.env.BREVO_SENDER_NAME || "Crown Asia",
           email: process.env.BREVO_SENDER_EMAIL,
         },
         to: [{ email }],
-        subject: "Your Crown Asia OTP Code",
+        subject: "Your OTP Code",
         htmlContent: `
           <div style="font-family:Arial">
             <h2>Email Verification</h2>
             <p>Your OTP code is:</p>
             <h1>${otp}</h1>
-            <p>This code expires in 5 minutes.</p>
+            <p>This OTP expires in 5 minutes.</p>
           </div>
         `,
       }),
     });
 
+    const result = await response.text();
+
     if (!response.ok) {
-      const err = await response.text();
+      console.error("Brevo API error:", result);
       return {
         statusCode: 500,
-        body: JSON.stringify({ error: err }),
+        body: JSON.stringify({ error: result }),
       };
     }
 
     return {
       statusCode: 200,
-      body: JSON.stringify({ success: true, otp }),
+      body: JSON.stringify({
+        success: true,
+        otp, // TEMP for testing
+      }),
     };
   } catch (err) {
+    console.error("Function error:", err);
     return {
       statusCode: 500,
       body: JSON.stringify({ error: err.message }),
