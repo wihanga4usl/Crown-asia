@@ -1,66 +1,58 @@
-const SibApiV3Sdk = require("sib-api-v3-sdk");
+import fetch from "node-fetch";
 
-exports.handler = async (event) => {
+export async function handler(event) {
   try {
-    if (event.httpMethod !== "POST") {
-      return {
-        statusCode: 405,
-        body: "Method Not Allowed",
-      };
-    }
-
-    const { email } = JSON.parse(event.body || "{}");
+    const { email } = JSON.parse(event.body);
 
     if (!email) {
       return {
         statusCode: 400,
-        body: JSON.stringify({ error: "Email required" }),
+        body: JSON.stringify({ error: "Email is required" }),
       };
     }
 
-    // Generate 6-digit OTP
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otp = Math.floor(100000 + Math.random() * 900000);
 
-    // Setup Brevo client
-    const client = SibApiV3Sdk.ApiClient.instance;
-    client.authentications["api-key"].apiKey =
-      process.env.BREVO_API_KEY;
-
-    const apiInstance = new SibApiV3Sdk.TransactionalEmailsApi();
-
-    const sendSmtpEmail = {
-      sender: {
-        email: process.env.BREVO_SENDER_EMAIL,
-        name: "Crown Asia",
+    const response = await fetch("https://api.brevo.com/v3/smtp/email", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "api-key": process.env.BREVO_API_KEY,
       },
-      to: [{ email }],
-      subject: "Your Email Verification OTP",
-      htmlContent: `
-        <div style="font-family:Arial,sans-serif">
-          <h2>Email Verification</h2>
-          <p>Your OTP code is:</p>
-          <h1 style="letter-spacing:4px">${otp}</h1>
-          <p>This OTP is valid for 5 minutes.</p>
-        </div>
-      `,
-    };
+      body: JSON.stringify({
+        sender: {
+          name: process.env.BREVO_SENDER_NAME,
+          email: process.env.BREVO_SENDER_EMAIL,
+        },
+        to: [{ email }],
+        subject: "Your Crown Asia OTP Code",
+        htmlContent: `
+          <div style="font-family:Arial">
+            <h2>Email Verification</h2>
+            <p>Your OTP code is:</p>
+            <h1>${otp}</h1>
+            <p>This code expires in 5 minutes.</p>
+          </div>
+        `,
+      }),
+    });
 
-    await apiInstance.sendTransacEmail(sendSmtpEmail);
+    if (!response.ok) {
+      const err = await response.text();
+      return {
+        statusCode: 500,
+        body: JSON.stringify({ error: err }),
+      };
+    }
 
     return {
       statusCode: 200,
-      body: JSON.stringify({
-        success: true,
-        otp, // ⚠️ TEMP: visible for testing
-      }),
+      body: JSON.stringify({ success: true, otp }),
     };
   } catch (err) {
-    console.error("Brevo error:", err);
     return {
       statusCode: 500,
-      body: JSON.stringify({
-        error: "Failed to send email OTP",
-      }),
+      body: JSON.stringify({ error: err.message }),
     };
   }
-};
+}

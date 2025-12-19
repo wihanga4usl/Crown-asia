@@ -1,12 +1,15 @@
 import { useState } from "react";
-import { Card, Input, Button, message, Steps } from "antd";
+import { Card, Input, Button, Steps, message } from "antd";
 import { createUserWithEmailAndPassword } from "firebase/auth";
 import { auth, db } from "../../firebase";
 import { doc, setDoc, serverTimestamp } from "firebase/firestore";
+import { useNavigate } from "react-router-dom";
 
 const { Step } = Steps;
 
 export default function Register() {
+  const navigate = useNavigate();
+
   const [step, setStep] = useState(0);
   const [loading, setLoading] = useState(false);
 
@@ -21,6 +24,7 @@ export default function Register() {
   });
 
   const [otp, setOtp] = useState("");
+  const [serverOtp, setServerOtp] = useState(""); // TEMP (for now)
 
   /* ================= SEND EMAIL OTP ================= */
   const sendEmailOtp = async () => {
@@ -37,53 +41,44 @@ export default function Register() {
         body: JSON.stringify({ email: form.email }),
       });
 
+      const data = await res.json();
+
       if (!res.ok) {
-        throw new Error("Failed to send email OTP");
+        throw new Error(data.error || "Failed to send email OTP");
       }
 
+      setServerOtp(String(data.otp)); // TEMP (remove later)
       message.success("OTP sent to your email");
       setStep(1);
-    } catch (e) {
-      console.error(e);
+    } catch (err) {
+      console.error(err);
       message.error("Failed to send email OTP");
     } finally {
       setLoading(false);
     }
   };
 
-  /* ================= VERIFY OTP + CREATE ACCOUNT ================= */
+  /* ================= VERIFY OTP + REGISTER ================= */
   const verifyOtpAndRegister = async () => {
     if (!otp) {
       return message.error("Please enter OTP");
     }
 
+    if (otp !== serverOtp) {
+      return message.error("Invalid OTP");
+    }
+
     try {
       setLoading(true);
 
-      // 1️⃣ Verify OTP
-      const verifyRes = await fetch("/.netlify/functions/verifyEmailOtp", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: form.email,
-          otp,
-        }),
-      });
-
-      const verifyData = await verifyRes.json();
-
-      if (!verifyRes.ok || !verifyData.verified) {
-        throw new Error("Invalid OTP");
-      }
-
-      // 2️⃣ Create Firebase Auth user
+      // Create Firebase Auth user
       const cred = await createUserWithEmailAndPassword(
         auth,
         form.email,
         form.password
       );
 
-      // 3️⃣ Create user profile
+      // Create Firestore user profile
       await setDoc(doc(db, "users", cred.user.uid), {
         firstName: form.firstName,
         lastName: form.lastName,
@@ -99,9 +94,9 @@ export default function Register() {
 
       message.success("Account created successfully");
       setStep(2);
-    } catch (e) {
-      console.error(e);
-      message.error(e.message || "Registration failed");
+    } catch (err) {
+      console.error(err);
+      message.error(err.message || "Registration failed");
     } finally {
       setLoading(false);
     }
@@ -216,7 +211,7 @@ export default function Register() {
           <h3>🎉 Registration Successful</h3>
           <p>You can now log in and submit KYC.</p>
 
-          <Button type="primary" href="/login">
+          <Button type="primary" onClick={() => navigate("/login")}>
             Go to Login
           </Button>
         </div>
