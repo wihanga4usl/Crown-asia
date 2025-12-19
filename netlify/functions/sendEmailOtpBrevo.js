@@ -1,82 +1,45 @@
-exports.handler = async (event) => {
+export async function handler(event) {
   try {
-    // Allow only POST
-    if (event.httpMethod !== "POST") {
-      return {
-        statusCode: 405,
-        body: JSON.stringify({ error: "Method Not Allowed" }),
-      };
-    }
-
-    const { email, otp } = JSON.parse(event.body || "{}");
+    const { email, otp } = JSON.parse(event.body);
 
     if (!email || !otp) {
       return {
         statusCode: 400,
-        body: JSON.stringify({ error: "Email and OTP are required" }),
+        body: JSON.stringify({ error: "Missing email or OTP" }),
       };
     }
 
-    const apiKey = process.env.BREVO_API_KEY;
-    const senderEmail = process.env.BREVO_SENDER;
-
-    // 🔴 CRITICAL CHECKS
-    if (!apiKey) {
-      return {
-        statusCode: 500,
-        body: JSON.stringify({ error: "BREVO_API_KEY is missing" }),
-      };
-    }
-
-    if (!senderEmail) {
-      return {
-        statusCode: 500,
-        body: JSON.stringify({ error: "BREVO_SENDER is missing" }),
-      };
-    }
-
-    const payload = {
-      sender: {
-        name: "Crown Asia Investment",
-        email: senderEmail,
-      },
-      to: [
-        {
-          email: email,
-        },
-      ],
-      subject: "Your Email Verification Code",
-      htmlContent: `
-        <div style="font-family:Arial,sans-serif">
-          <h2>Email Verification</h2>
-          <p>Your OTP code is:</p>
-          <h1 style="letter-spacing:4px">${otp}</h1>
-          <p>This code will expire in 5 minutes.</p>
-          <br/>
-          <small>© Crown Asia Investment</small>
-        </div>
-      `,
-    };
-
-    const response = await fetch("https://api.brevo.com/v3/smtp/email", {
+    const res = await fetch("https://api.brevo.com/v3/smtp/email", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "api-key": apiKey,
+        "api-key": process.env.BREVO_API_KEY,
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        sender: {
+          name: "Crown Asia Investment",
+          email: process.env.BREVO_SENDER_EMAIL, // 🔥 MUST EXIST
+        },
+        to: [{ email }],
+        subject: "Your OTP Code",
+        htmlContent: `
+          <div style="font-family:Arial">
+            <h2>OTP Verification</h2>
+            <p>Your OTP code is:</p>
+            <h1>${otp}</h1>
+            <p>This code expires in 5 minutes.</p>
+          </div>
+        `,
+      }),
     });
 
-    const resultText = await response.text();
+    const data = await res.json();
 
-    if (!response.ok) {
-      console.error("Brevo API error:", resultText);
+    if (!res.ok) {
+      console.error("Brevo API response:", data);
       return {
-        statusCode: response.status,
-        body: JSON.stringify({
-          error: "Brevo API error",
-          details: resultText,
-        }),
+        statusCode: 500,
+        body: JSON.stringify({ error: data }),
       };
     }
 
@@ -88,7 +51,7 @@ exports.handler = async (event) => {
     console.error("Function error:", err);
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: err.message }),
+      body: JSON.stringify({ error: "Internal error" }),
     };
   }
-};
+}
