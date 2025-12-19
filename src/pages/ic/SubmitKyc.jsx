@@ -1,12 +1,22 @@
-import { useState } from "react";
-import { Card, Input, Button, Upload, message, Select } from "antd";
+import { useEffect, useState } from "react";
+import {
+  Card,
+  Input,
+  Button,
+  Upload,
+  message,
+  Select,
+  Alert,
+} from "antd";
 import { UploadOutlined } from "@ant-design/icons";
 import axios from "axios";
 import { auth, db } from "../../firebase";
-import { doc, updateDoc, serverTimestamp } from "firebase/firestore";
+import { doc, getDoc, updateDoc, serverTimestamp } from "firebase/firestore";
 
 export default function SubmitKyc() {
   const [loading, setLoading] = useState(false);
+  const [kycStatus, setKycStatus] = useState(null);
+
   const [nicFront, setNicFront] = useState(null);
   const [nicBack, setNicBack] = useState(null);
   const [signature, setSignature] = useState(null);
@@ -19,7 +29,18 @@ export default function SubmitKyc() {
     occupation: "",
   });
 
-  // 🔹 Upload to IMGBB
+  /* ================= LOAD USER KYC STATUS ================= */
+  useEffect(() => {
+    const loadStatus = async () => {
+      const snap = await getDoc(doc(db, "users", auth.currentUser.uid));
+      if (snap.exists()) {
+        setKycStatus(snap.data().kycStatus || null);
+      }
+    };
+    loadStatus();
+  }, []);
+
+  /* ================= IMAGE UPLOAD ================= */
   const uploadImage = async (file) => {
     const data = new FormData();
     data.append("image", file);
@@ -32,10 +53,18 @@ export default function SubmitKyc() {
     return res.data.data.url;
   };
 
-  // 🔹 Submit KYC
+  /* ================= SUBMIT KYC ================= */
   const handleSubmitKyc = async () => {
+    if (kycStatus === "PENDING") {
+      return message.warning("Your KYC is still under review");
+    }
+
+    if (kycStatus === "APPROVED") {
+      return message.success("Your KYC is already approved");
+    }
+
     if (!nicFront || !nicBack || !signature) {
-      return message.error("Please upload all required images");
+      return message.error("Please upload all required documents");
     }
 
     try {
@@ -57,6 +86,7 @@ export default function SubmitKyc() {
       });
 
       message.success("KYC submitted successfully");
+      setKycStatus("PENDING");
     } catch (err) {
       console.error(err);
       message.error("KYC submission failed");
@@ -65,38 +95,68 @@ export default function SubmitKyc() {
     }
   };
 
+  /* ================= UI ================= */
   return (
-    <Card style={{ maxWidth: 600, margin: "40px auto" }}>
+    <Card style={{ maxWidth: 650, margin: "40px auto" }}>
       <h2>KYC Verification</h2>
+
+      {kycStatus === "PENDING" && (
+        <Alert
+          type="warning"
+          message="Your KYC is under review"
+          style={{ marginBottom: 20 }}
+        />
+      )}
+
+      {kycStatus === "REJECTED" && (
+        <Alert
+          type="error"
+          message="Your KYC was rejected. Please resubmit."
+          style={{ marginBottom: 20 }}
+        />
+      )}
 
       <Input
         placeholder="Full Name"
-        onChange={(e) => setForm({ ...form, fullName: e.target.value })}
+        disabled={kycStatus === "PENDING"}
         style={{ marginBottom: 10 }}
+        onChange={(e) =>
+          setForm({ ...form, fullName: e.target.value })
+        }
       />
 
       <Input
         placeholder="NIC Number"
-        onChange={(e) => setForm({ ...form, nicNumber: e.target.value })}
+        disabled={kycStatus === "PENDING"}
         style={{ marginBottom: 10 }}
+        onChange={(e) =>
+          setForm({ ...form, nicNumber: e.target.value })
+        }
       />
 
       <Input
         type="date"
-        onChange={(e) => setForm({ ...form, dob: e.target.value })}
+        disabled={kycStatus === "PENDING"}
         style={{ marginBottom: 10 }}
+        onChange={(e) =>
+          setForm({ ...form, dob: e.target.value })
+        }
       />
 
       <Input
         placeholder="Address"
-        onChange={(e) => setForm({ ...form, address: e.target.value })}
+        disabled={kycStatus === "PENDING"}
         style={{ marginBottom: 10 }}
+        onChange={(e) =>
+          setForm({ ...form, address: e.target.value })
+        }
       />
 
       <Select
         placeholder="Occupation"
-        onChange={(v) => setForm({ ...form, occupation: v })}
+        disabled={kycStatus === "PENDING"}
         style={{ width: "100%", marginBottom: 15 }}
+        onChange={(v) => setForm({ ...form, occupation: v })}
         options={[
           { value: "Private", label: "Private" },
           { value: "Government", label: "Government" },
@@ -104,17 +164,35 @@ export default function SubmitKyc() {
         ]}
       />
 
-      <Upload beforeUpload={(f) => (setNicFront(f), false)}>
+      <Upload
+        beforeUpload={(file) => {
+          setNicFront(file);
+          return false;
+        }}
+        disabled={kycStatus === "PENDING"}
+      >
         <Button icon={<UploadOutlined />}>Upload NIC Front</Button>
       </Upload>
 
-      <Upload beforeUpload={(f) => (setNicBack(f), false)}>
+      <Upload
+        beforeUpload={(file) => {
+          setNicBack(file);
+          return false;
+        }}
+        disabled={kycStatus === "PENDING"}
+      >
         <Button icon={<UploadOutlined />} style={{ marginTop: 10 }}>
           Upload NIC Back
         </Button>
       </Upload>
 
-      <Upload beforeUpload={(f) => (setSignature(f), false)}>
+      <Upload
+        beforeUpload={(file) => {
+          setSignature(file);
+          return false;
+        }}
+        disabled={kycStatus === "PENDING"}
+      >
         <Button icon={<UploadOutlined />} style={{ marginTop: 10 }}>
           Upload Signature
         </Button>
@@ -126,6 +204,7 @@ export default function SubmitKyc() {
         loading={loading}
         onClick={handleSubmitKyc}
         style={{ marginTop: 20 }}
+        disabled={kycStatus === "PENDING"}
       >
         Submit KYC
       </Button>
