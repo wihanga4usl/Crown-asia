@@ -1,62 +1,66 @@
-import fetch from "node-fetch";
-import crypto from "crypto";
-import admin from "firebase-admin";
+const SibApiV3Sdk = require("sib-api-v3-sdk");
 
-if (!admin.apps.length) {
-  admin.initializeApp({
-    credential: admin.credential.cert(
-      JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT)
-    ),
-  });
-}
-
-const db = admin.firestore();
-
-export const handler = async (event) => {
+exports.handler = async (event) => {
   try {
+    if (event.httpMethod !== "POST") {
+      return {
+        statusCode: 405,
+        body: "Method Not Allowed",
+      };
+    }
+
     const { email } = JSON.parse(event.body || "{}");
 
     if (!email) {
-      return { statusCode: 400, body: "Email required" };
+      return {
+        statusCode: 400,
+        body: JSON.stringify({ error: "Email required" }),
+      };
     }
 
+    // Generate 6-digit OTP
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const otpHash = crypto.createHash("sha256").update(otp).digest("hex");
 
-    await db.collection("emailOtps").doc(email).set({
-      otpHash,
-      attempts: 0,
-      verified: false,
-      expiresAt: admin.firestore.Timestamp.fromDate(
-        new Date(Date.now() + 5 * 60 * 1000)
-      ),
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
+    // Setup Brevo client
+    const client = SibApiV3Sdk.ApiClient.instance;
+    client.authentications["api-key"].apiKey =
+      process.env.BREVO_API_KEY;
 
-    await fetch("https://api.brevo.com/v3/smtp/email", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.BREVO_API_KEY}`,
-        "Content-Type": "application/json",
+    const apiInstance = new SibApiV3Sdk.TransactionalEmailsApi();
+
+    const sendSmtpEmail = {
+      sender: {
+        email: process.env.BREVO_SENDER_EMAIL,
+        name: "Crown Asia",
       },
-      body: JSON.stringify({
-        sender: { email: process.env.BREVO_SENDER_EMAIL },
-        to: [{ email }],
-        subject: "Email Verification Code",
-        htmlContent: `
-          <p>Your verification code is:</p>
-          <h2>${otp}</h2>
-          <p>This code expires in 5 minutes.</p>
-        `,
-      }),
-    });
+      to: [{ email }],
+      subject: "Your Email Verification OTP",
+      htmlContent: `
+        <div style="font-family:Arial,sans-serif">
+          <h2>Email Verification</h2>
+          <p>Your OTP code is:</p>
+          <h1 style="letter-spacing:4px">${otp}</h1>
+          <p>This OTP is valid for 5 minutes.</p>
+        </div>
+      `,
+    };
+
+    await apiInstance.sendTransacEmail(sendSmtpEmail);
 
     return {
       statusCode: 200,
-      body: JSON.stringify({ success: true }),
+      body: JSON.stringify({
+        success: true,
+        otp, // ⚠️ TEMP: visible for testing
+      }),
     };
-  } catch (e) {
-    console.error(e);
-    return { statusCode: 500, body: "Failed to send OTP" };
+  } catch (err) {
+    console.error("Brevo error:", err);
+    return {
+      statusCode: 500,
+      body: JSON.stringify({
+        error: "Failed to send email OTP",
+      }),
+    };
   }
 };
