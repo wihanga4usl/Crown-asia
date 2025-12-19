@@ -206,14 +206,15 @@ export default function SubmitKyc() {
         </Upload>
 
         <Button
-          type="primary"
-          block
-          loading={submitting}
-          onClick={submitKyc}
-          style={styles.submitBtn}
-        >
-          Submit KYC
-        </Button>
+  type="primary"
+  onClick={async () => {
+    await uploadNicFront();
+    await uploadNicBack();
+    await uploadSignature();
+  }}
+>
+  Submit KYC
+</Button>
       </Card>
     </div>
   );
