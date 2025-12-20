@@ -17,11 +17,8 @@ import {
   UserOutlined,
   MailOutlined,
   PhoneOutlined,
-  BankOutlined,
-  SafetyOutlined,
   UploadOutlined,
 } from "@ant-design/icons";
-import { useNavigate } from "react-router-dom";
 import { auth, db } from "../../firebase";
 import {
   doc,
@@ -45,17 +42,18 @@ const IMGBB_KEY = process.env.REACT_APP_IMGBB_API_KEY;
 export default function IcProfile() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(false);
+
+  /* PHOTO */
   const [photo, setPhoto] = useState(null);
   const [uploading, setUploading] = useState(false);
 
-  /* PHONE OTP STATES */
+  /* PHONE OTP */
   const [phoneModal, setPhoneModal] = useState(false);
   const [newPhone, setNewPhone] = useState("");
   const [otp, setOtp] = useState("");
   const [otpStep, setOtpStep] = useState(1);
   const [otpLoading, setOtpLoading] = useState(false);
 
-  const navigate = useNavigate();
   const uid = auth.currentUser?.uid;
 
   /* ================= LOAD PROFILE ================= */
@@ -66,11 +64,15 @@ export default function IcProfile() {
 
   const loadProfile = async () => {
     if (!uid) return;
-    const snap = await getDoc(doc(db, "users", uid));
-    if (snap.exists()) setUser(snap.data());
+    try {
+      const snap = await getDoc(doc(db, "users", uid));
+      if (snap.exists()) setUser(snap.data());
+    } catch {
+      message.error("Failed to load profile");
+    }
   };
 
-  /* ================= UPDATE PROFILE ================= */
+  /* ================= UPDATE BASIC PROFILE ================= */
   const updateProfile = async (values) => {
     try {
       setLoading(true);
@@ -84,8 +86,10 @@ export default function IcProfile() {
     }
   };
 
-  /* ================= PHOTO UPLOAD ================= */
+  /* ================= UPLOAD PROFILE PHOTO ================= */
   const uploadProfilePhoto = async () => {
+    if (!photo) return message.error("Select a photo first");
+
     try {
       setUploading(true);
       const fd = new FormData();
@@ -100,18 +104,20 @@ export default function IcProfile() {
         profilePhotoUrl: res.data.data.url,
       });
 
-      message.success("Photo updated");
+      message.success("Profile photo updated");
       setPhoto(null);
       loadProfile();
     } catch {
-      message.error("Upload failed");
+      message.error("Photo upload failed");
     } finally {
       setUploading(false);
     }
   };
 
-  /* ================= PHONE OTP ================= */
+  /* ================= SEND PHONE OTP ================= */
   const sendPhoneOtp = async () => {
+    if (!newPhone) return message.error("Enter phone number");
+
     try {
       setOtpLoading(true);
       const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
@@ -124,6 +130,7 @@ export default function IcProfile() {
 
       await fetch("/.netlify/functions/sendPhoneOtp", {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ phone: newPhone, otp: otpCode }),
       });
 
@@ -136,6 +143,7 @@ export default function IcProfile() {
     }
   };
 
+  /* ================= VERIFY PHONE OTP ================= */
   const verifyPhoneOtp = async () => {
     try {
       setOtpLoading(true);
@@ -147,17 +155,14 @@ export default function IcProfile() {
       const data = snap.data();
       if (data.otp !== otp) return message.error("Invalid OTP");
 
-      await updateDoc(doc(db, "users", uid), {
-        phone: newPhone,
-      });
-
+      await updateDoc(doc(db, "users", uid), { phone: newPhone });
       await deleteDoc(ref);
 
-      message.success("Phone updated");
+      message.success("Phone number updated");
       setPhoneModal(false);
-      setOtpStep(1);
-      setNewPhone("");
       setOtp("");
+      setNewPhone("");
+      setOtpStep(1);
       loadProfile();
     } catch {
       message.error("OTP verification failed");
@@ -187,8 +192,8 @@ export default function IcProfile() {
         </Tag>
 
         <Upload
-          beforeUpload={(f) => {
-            setPhoto(f);
+          beforeUpload={(file) => {
+            setPhoto(file);
             return false;
           }}
           showUploadList={false}
@@ -209,9 +214,8 @@ export default function IcProfile() {
         )}
       </Card>
 
-      {/* ================= CONTENT ================= */}
+      {/* ================= PERSONAL INFO ================= */}
       <Row gutter={[16, 16]}>
-        {/* PERSONAL */}
         <Col xs={24}>
           <Card title="Personal Information" style={styles.card}>
             <Form
@@ -228,19 +232,32 @@ export default function IcProfile() {
               <Form.Item label="Address" name="address">
                 <Input.TextArea rows={2} />
               </Form.Item>
-              <Button htmlType="submit" loading={loading} style={styles.primaryBtn}>
+
+              <Button
+                htmlType="submit"
+                loading={loading}
+                style={styles.primaryBtn}
+              >
                 Save Changes
               </Button>
             </Form>
           </Card>
         </Col>
 
-        {/* CONTACT */}
+        {/* ================= CONTACT ================= */}
         <Col xs={24}>
           <Card title="Contact Information" style={styles.card}>
-            <Input value={user.email} disabled prefix={<MailOutlined />} />
+            <Input
+              prefix={<MailOutlined />}
+              value={user.email}
+              disabled
+            />
             <Divider />
-            <Input value={user.phone} disabled prefix={<PhoneOutlined />} />
+            <Input
+              prefix={<PhoneOutlined />}
+              value={user.phone}
+              disabled
+            />
             <Button
               type="link"
               onClick={() => setPhoneModal(true)}
@@ -262,7 +279,7 @@ export default function IcProfile() {
         {otpStep === 1 && (
           <>
             <Input
-              placeholder="9477xxxxxxx"
+              placeholder="9477XXXXXXX"
               value={newPhone}
               onChange={(e) => setNewPhone(e.target.value)}
             />
@@ -299,10 +316,25 @@ export default function IcProfile() {
 
 /* ================= STYLES ================= */
 const styles = {
-  page: { padding: 16, background: "#F6F7FB", minHeight: "100vh" },
-  heroCard: { textAlign: "center", borderRadius: 20, marginBottom: 16 },
-  avatar: { border: `3px solid ${BRAND.primary}` },
-  uploadBtn: { marginTop: 12, color: BRAND.primary },
+  page: {
+    padding: 16,
+    background: "#F6F7FB",
+    minHeight: "100vh",
+  },
+  heroCard: {
+    textAlign: "center",
+    borderRadius: 20,
+    marginBottom: 16,
+  },
+  avatar: {
+    border: `3px solid ${BRAND.primary}`,
+    marginBottom: 8,
+  },
+  uploadBtn: {
+    marginTop: 12,
+    color: BRAND.primary,
+    borderColor: BRAND.primary,
+  },
   primaryBtn: {
     background: BRAND.primary,
     borderColor: BRAND.primary,
@@ -310,5 +342,7 @@ const styles = {
     marginTop: 12,
     width: "100%",
   },
-  card: { borderRadius: 20 },
+  card: {
+    borderRadius: 20,
+  },
 };
