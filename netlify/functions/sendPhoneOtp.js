@@ -1,32 +1,31 @@
-import fetch from "node-fetch";
-
-export async function handler(event) {
+exports.handler = async (event) => {
   try {
     const { phone, otp } = JSON.parse(event.body);
 
-    const url = "https://app.text.lk/api/v3/sms/send";
-    const payload = {
-      recipient: phone,
-      sender_id: process.env.TEXTLK_SENDER_ID,
-      message: `Your Crown Asia OTP is ${otp}. Valid for 5 minutes.`,
-    };
+    if (!phone || !otp) {
+      return {
+        statusCode: 400,
+        body: JSON.stringify({ error: "Phone or OTP missing" }),
+      };
+    }
 
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.TEXTLK_API_TOKEN}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
+    const params = new URLSearchParams({
+      token: process.env.TEXTLK_API_TOKEN,
+      to: phone,
+      from: process.env.TEXTLK_SENDER_ID,
+      message: `Your Crown Asia OTP is ${otp}. Valid for 5 minutes.`,
     });
+
+    const res = await fetch(
+      `https://app.text.lk/api/v3/sms/send?${params.toString()}`
+    );
 
     const data = await res.json();
 
-    if (!res.ok) {
-      return {
-        statusCode: 400,
-        body: JSON.stringify(data),
-      };
+    console.log("TEXT.LK RESPONSE:", data);
+
+    if (!data.status) {
+      throw new Error("Text.lk rejected message");
     }
 
     return {
@@ -34,9 +33,10 @@ export async function handler(event) {
       body: JSON.stringify({ success: true }),
     };
   } catch (err) {
+    console.error("SMS ERROR:", err.message);
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: err.message }),
+      body: JSON.stringify({ error: "Failed to send OTP" }),
     };
   }
-}
+};
