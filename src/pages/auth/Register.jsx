@@ -1,17 +1,11 @@
 import { useState } from "react";
-import { Card, Input, Button, Steps, message } from "antd";
 import { createUserWithEmailAndPassword } from "firebase/auth";
-import { auth, db } from "../../firebase";
 import { doc, setDoc, serverTimestamp } from "firebase/firestore";
+import { auth, db } from "../../firebase";
 import { useNavigate } from "react-router-dom";
-
-const { Step } = Steps;
 
 export default function Register() {
   const navigate = useNavigate();
-
-  const [step, setStep] = useState(0);
-  const [loading, setLoading] = useState(false);
 
   const [form, setForm] = useState({
     firstName: "",
@@ -23,62 +17,23 @@ export default function Register() {
     password: "",
   });
 
-  const [otp, setOtp] = useState("");
-  const [serverOtp, setServerOtp] = useState(""); // TEMP (for now)
+  const [loading, setLoading] = useState(false);
 
-  /* ================= SEND EMAIL OTP ================= */
-  const sendEmailOtp = async () => {
-    if (!form.email) {
-      return message.error("Email is required");
-    }
-
-    try {
-      setLoading(true);
-
-      const res = await fetch("/.netlify/functions/sendEmailOtpBrevo", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: form.email }),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error || "Failed to send email OTP");
-      }
-
-      setServerOtp(String(data.otp)); // TEMP (remove later)
-      message.success("OTP sent to your email");
-      setStep(1);
-    } catch (err) {
-      console.error(err);
-      message.error("Failed to send email OTP");
-    } finally {
-      setLoading(false);
-    }
+  const handleChange = (e) => {
+    setForm({ ...form, [e.target.name]: e.target.value });
   };
 
-  /* ================= VERIFY OTP + REGISTER ================= */
-  const verifyOtpAndRegister = async () => {
-    if (!otp) {
-      return message.error("Please enter OTP");
-    }
-
-    if (otp !== serverOtp) {
-      return message.error("Invalid OTP");
-    }
+  const submit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
 
     try {
-      setLoading(true);
-
-      // Create Firebase Auth user
       const cred = await createUserWithEmailAndPassword(
         auth,
         form.email,
         form.password
       );
 
-      // Create Firestore user profile
       await setDoc(doc(db, "users", cred.user.uid), {
         firstName: form.firstName,
         lastName: form.lastName,
@@ -88,134 +43,121 @@ export default function Register() {
         address: form.address,
         role: "IC",
         kycStatus: "NOT_SUBMITTED",
-        wallet: 0,
         createdAt: serverTimestamp(),
       });
 
-      message.success("Account created successfully");
-      setStep(2);
+      navigate("/ic/dashboard");
     } catch (err) {
-      console.error(err);
-      message.error(err.message || "Registration failed");
+      alert(err.message);
     } finally {
       setLoading(false);
     }
   };
 
-  /* ================= UI ================= */
   return (
-    <Card style={{ maxWidth: 480, margin: "60px auto" }}>
-      <h2 style={{ textAlign: "center", marginBottom: 20 }}>
-        Create Account
-      </h2>
+    <div className="min-h-screen flex items-center justify-center bg-gray-100 px-4">
+      <div className="w-full max-w-lg bg-white rounded-xl shadow-lg p-8">
+        <h2 className="text-2xl font-semibold text-gray-800 mb-2">
+          Create Account
+        </h2>
+        <p className="text-sm text-gray-500 mb-6">
+          Register as an Independent Consultant
+        </p>
 
-      <Steps current={step} size="small" style={{ marginBottom: 30 }}>
-        <Step title="Details" />
-        <Step title="Verify Email" />
-        <Step title="Done" />
-      </Steps>
+        <form onSubmit={submit} className="space-y-5">
+          {/* Name */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="label">First Name</label>
+              <input
+                name="firstName"
+                required
+                onChange={handleChange}
+                className="input"
+              />
+            </div>
+            <div>
+              <label className="label">Last Name</label>
+              <input
+                name="lastName"
+                required
+                onChange={handleChange}
+                className="input"
+              />
+            </div>
+          </div>
 
-      {/* STEP 1 — USER DETAILS */}
-      {step === 0 && (
-        <>
-          <Input
-            placeholder="First Name"
-            style={{ marginBottom: 10 }}
-            onChange={(e) =>
-              setForm({ ...form, firstName: e.target.value })
-            }
-          />
+          {/* Email */}
+          <div>
+            <label className="label">Email</label>
+            <input
+              name="email"
+              type="email"
+              required
+              onChange={handleChange}
+              className="input"
+            />
+          </div>
 
-          <Input
-            placeholder="Last Name"
-            style={{ marginBottom: 10 }}
-            onChange={(e) =>
-              setForm({ ...form, lastName: e.target.value })
-            }
-          />
+          {/* Phone */}
+          <div>
+            <label className="label">Phone</label>
+            <input
+              name="phone"
+              required
+              onChange={handleChange}
+              className="input"
+            />
+          </div>
 
-          <Input
-            placeholder="Email"
-            style={{ marginBottom: 10 }}
-            onChange={(e) =>
-              setForm({ ...form, email: e.target.value })
-            }
-          />
+          {/* DOB */}
+          <div>
+            <label className="label">Date of Birth</label>
+            <input
+              name="dob"
+              type="date"
+              required
+              onChange={handleChange}
+              className="input"
+            />
+          </div>
 
-          <Input
-            placeholder="Phone Number"
-            style={{ marginBottom: 10 }}
-            onChange={(e) =>
-              setForm({ ...form, phone: e.target.value })
-            }
-          />
+          {/* Address */}
+          <div>
+            <label className="label">Address</label>
+            <input
+              name="address"
+              required
+              onChange={handleChange}
+              className="input"
+            />
+          </div>
 
-          <Input
-            type="date"
-            style={{ marginBottom: 10 }}
-            onChange={(e) =>
-              setForm({ ...form, dob: e.target.value })
-            }
-          />
+          {/* Password */}
+          <div>
+            <label className="label">Password</label>
+            <input
+              name="password"
+              type="password"
+              required
+              minLength={6}
+              onChange={handleChange}
+              className="input"
+            />
+            <p className="text-xs text-gray-400 mt-1">
+              Minimum 6 characters
+            </p>
+          </div>
 
-          <Input
-            placeholder="Address"
-            style={{ marginBottom: 10 }}
-            onChange={(e) =>
-              setForm({ ...form, address: e.target.value })
-            }
-          />
-
-          <Input.Password
-            placeholder="Password"
-            style={{ marginBottom: 20 }}
-            onChange={(e) =>
-              setForm({ ...form, password: e.target.value })
-            }
-          />
-
-          <Button
-            type="primary"
-            block
-            loading={loading}
-            onClick={sendEmailOtp}
+          {/* Submit */}
+          <button
+            disabled={loading}
+            className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg font-medium transition disabled:opacity-60"
           >
-            Send Email OTP
-          </Button>
-        </>
-      )}
-
-      {/* STEP 2 — OTP VERIFY */}
-      {step === 1 && (
-        <>
-          <Input
-            placeholder="Enter Email OTP"
-            style={{ marginBottom: 20 }}
-            onChange={(e) => setOtp(e.target.value)}
-          />
-
-          <Button
-            type="primary"
-            block
-            loading={loading}
-            onClick={verifyOtpAndRegister}
-          >
-            Verify OTP & Create Account
-          </Button>
-        </>
-      )}
-
-      {/* STEP 3 — DONE */}
-      {step === 2 && (
-        <div style={{ textAlign: "center" }}>
-          <h3>🎉 Registration Successful</h3>
-          <p>You can now log in and submit KYC.</p>
-
-          <Button type="primary" onClick={() => navigate("/login")}>
-            Go to Login
-          </Button>
-        </div>
-      )}
-    </Card>
+            {loading ? "Creating account..." : "Register"}
+          </button>
+        </form>
+      </div>
+    </div>
   );
 }

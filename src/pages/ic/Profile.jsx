@@ -11,6 +11,7 @@ import {
   message,
   Divider,
   Upload,
+  Modal,
 } from "antd";
 import {
   UserOutlined,
@@ -22,12 +23,18 @@ import {
 } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
 import { auth, db } from "../../firebase";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
+import {
+  doc,
+  getDoc,
+  updateDoc,
+  setDoc,
+  deleteDoc,
+} from "firebase/firestore";
 import axios from "axios";
 
 /* ================= BRAND COLORS ================= */
 const BRAND = {
-  primary: "#F5A623",   // Crown Asia Gold
+  primary: "#F5A623",
   light: "#FFF6E5",
   dark: "#1F1F1F",
   gray: "#8C8C8C",
@@ -41,6 +48,13 @@ export default function IcProfile() {
   const [photo, setPhoto] = useState(null);
   const [uploading, setUploading] = useState(false);
 
+  /* PHONE OTP STATES */
+  const [phoneModal, setPhoneModal] = useState(false);
+  const [newPhone, setNewPhone] = useState("");
+  const [otp, setOtp] = useState("");
+  const [otpStep, setOtpStep] = useState(1);
+  const [otpLoading, setOtpLoading] = useState(false);
+
   const navigate = useNavigate();
   const uid = auth.currentUser?.uid;
 
@@ -52,14 +66,8 @@ export default function IcProfile() {
 
   const loadProfile = async () => {
     if (!uid) return;
-    try {
-      const snap = await getDoc(doc(db, "users", uid));
-      if (snap.exists()) {
-        setUser(snap.data());
-      }
-    } catch {
-      message.error("Failed to load profile");
-    }
+    const snap = await getDoc(doc(db, "users", uid));
+    if (snap.exists()) setUser(snap.data());
   };
 
   /* ================= UPDATE PROFILE ================= */
@@ -76,16 +84,10 @@ export default function IcProfile() {
     }
   };
 
-  /* ================= UPLOAD PHOTO ================= */
+  /* ================= PHOTO UPLOAD ================= */
   const uploadProfilePhoto = async () => {
-    if (!photo) {
-      message.error("Please select a photo");
-      return;
-    }
-
     try {
       setUploading(true);
-
       const fd = new FormData();
       fd.append("image", photo);
 
@@ -98,13 +100,69 @@ export default function IcProfile() {
         profilePhotoUrl: res.data.data.url,
       });
 
-      message.success("Profile photo updated");
+      message.success("Photo updated");
       setPhoto(null);
       loadProfile();
     } catch {
-      message.error("Photo upload failed");
+      message.error("Upload failed");
     } finally {
       setUploading(false);
+    }
+  };
+
+  /* ================= PHONE OTP ================= */
+  const sendPhoneOtp = async () => {
+    try {
+      setOtpLoading(true);
+      const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+
+      await setDoc(doc(db, "phoneOtps", uid), {
+        phone: newPhone,
+        otp: otpCode,
+        expiresAt: Date.now() + 5 * 60 * 1000,
+      });
+
+      await fetch("/.netlify/functions/sendPhoneOtp", {
+        method: "POST",
+        body: JSON.stringify({ phone: newPhone, otp: otpCode }),
+      });
+
+      setOtpStep(2);
+      message.success("OTP sent to phone");
+    } catch {
+      message.error("Failed to send OTP");
+    } finally {
+      setOtpLoading(false);
+    }
+  };
+
+  const verifyPhoneOtp = async () => {
+    try {
+      setOtpLoading(true);
+      const ref = doc(db, "phoneOtps", uid);
+      const snap = await getDoc(ref);
+
+      if (!snap.exists()) return message.error("OTP expired");
+
+      const data = snap.data();
+      if (data.otp !== otp) return message.error("Invalid OTP");
+
+      await updateDoc(doc(db, "users", uid), {
+        phone: newPhone,
+      });
+
+      await deleteDoc(ref);
+
+      message.success("Phone updated");
+      setPhoneModal(false);
+      setOtpStep(1);
+      setNewPhone("");
+      setOtp("");
+      loadProfile();
+    } catch {
+      message.error("OTP verification failed");
+    } finally {
+      setOtpLoading(false);
     }
   };
 
@@ -121,37 +179,27 @@ export default function IcProfile() {
           style={styles.avatar}
         />
 
-        <h2 style={styles.name}>
-          {user.firstName} {user.lastName}
-        </h2>
+        <h2>{user.firstName} {user.lastName}</h2>
 
-        <div>
-          <Tag color="gold">Investment Consultant</Tag>
-          <Tag color={user.kycStatus === "APPROVED" ? "green" : "orange"}>
-            KYC {user.kycStatus}
-          </Tag>
-        </div>
+        <Tag color="gold">Investment Consultant</Tag>
+        <Tag color={user.kycStatus === "APPROVED" ? "green" : "orange"}>
+          KYC {user.kycStatus}
+        </Tag>
 
         <Upload
-          beforeUpload={(file) => {
-            setPhoto(file);
+          beforeUpload={(f) => {
+            setPhoto(f);
             return false;
           }}
           showUploadList={false}
-          accept="image/png,image/jpeg"
         >
-          <Button
-            shape="round"
-            icon={<UploadOutlined />}
-            style={styles.uploadBtn}
-          >
+          <Button icon={<UploadOutlined />} style={styles.uploadBtn}>
             Change Photo
           </Button>
         </Upload>
 
         {photo && (
           <Button
-            type="primary"
             loading={uploading}
             onClick={uploadProfilePhoto}
             style={styles.primaryBtn}
@@ -161,166 +209,100 @@ export default function IcProfile() {
         )}
       </Card>
 
-      {/* ================= KYC ALERT ================= */}
-      {user.kycStatus !== "APPROVED" && (
-        <Card style={styles.kycCard} bordered={false}>
-          <SafetyOutlined style={styles.kycIcon} />
-          <div>
-            <strong>KYC Verification Required</strong>
-            <p style={{ margin: "6px 0", color: BRAND.gray }}>
-              You need to submit your KYC documents to start adding investments.
-            </p>
-            <Button
-              type="link"
-              style={{ color: BRAND.primary, padding: 0 }}
-              onClick={() => navigate("/ic/kyc")}
-            >
-              Go to Settings → KYC Verification
-            </Button>
-          </div>
-        </Card>
-      )}
-
       {/* ================= CONTENT ================= */}
       <Row gutter={[16, 16]}>
-        {/* PERSONAL INFO */}
+        {/* PERSONAL */}
         <Col xs={24}>
           <Card title="Personal Information" style={styles.card}>
             <Form
               layout="vertical"
-              initialValues={{
-                firstName: user.firstName,
-                lastName: user.lastName,
-                address: user.address,
-              }}
+              initialValues={user}
               onFinish={updateProfile}
             >
               <Form.Item label="First Name" name="firstName">
                 <Input />
               </Form.Item>
-
               <Form.Item label="Last Name" name="lastName">
                 <Input />
               </Form.Item>
-
               <Form.Item label="Address" name="address">
                 <Input.TextArea rows={2} />
               </Form.Item>
-
-              <Button
-                type="primary"
-                htmlType="submit"
-                loading={loading}
-                style={styles.primaryBtn}
-              >
+              <Button htmlType="submit" loading={loading} style={styles.primaryBtn}>
                 Save Changes
               </Button>
             </Form>
           </Card>
         </Col>
 
-        {/* CONTACT INFO */}
+        {/* CONTACT */}
         <Col xs={24}>
           <Card title="Contact Information" style={styles.card}>
-            <p><MailOutlined /> Email</p>
-            <Input value={user.email} disabled />
-
+            <Input value={user.email} disabled prefix={<MailOutlined />} />
+            <Divider />
+            <Input value={user.phone} disabled prefix={<PhoneOutlined />} />
             <Button
               type="link"
-              style={{ color: BRAND.primary, paddingLeft: 0 }}
-              onClick={() => navigate("/ic/change-email")}
+              onClick={() => setPhoneModal(true)}
+              style={{ color: BRAND.primary }}
             >
-              Change Email (OTP)
-            </Button>
-
-            <Divider />
-
-            <p><PhoneOutlined /> Phone</p>
-            <Input value={user.phone} disabled />
-          </Card>
-        </Col>
-
-        {/* BANK DETAILS */}
-        <Col xs={24}>
-          <Card title="Bank Details" style={styles.card}>
-            <p style={{ color: BRAND.gray }}>
-              <BankOutlined /> Bank details are protected and require email verification.
-            </p>
-
-            {user.bank ? (
-              <>
-                <p><strong>Bank:</strong> {user.bank.bankName}</p>
-                <p><strong>Account Name:</strong> {user.bank.accountName}</p>
-                <p><strong>Account Number:</strong> {user.bank.accountNumber}</p>
-
-                <Button
-                  type="primary"
-                  style={styles.primaryBtn}
-                  onClick={() => navigate("/ic/bank-otp")}
-                >
-                  Update Bank Details
-                </Button>
-              </>
-            ) : (
-              <Button
-                type="primary"
-                style={styles.primaryBtn}
-                onClick={() => navigate("/ic/bank-otp")}
-              >
-                Add Bank Details (OTP)
-              </Button>
-            )}
-          </Card>
-        </Col>
-
-        {/* SECURITY */}
-        <Col xs={24}>
-          <Card title="Security" style={styles.card}>
-            <Button
-              type="primary"
-              style={styles.primaryBtn}
-              onClick={() => navigate("/ic/change-password-otp")}
-            >
-              Change Password
+              Change Phone (OTP)
             </Button>
           </Card>
         </Col>
       </Row>
+
+      {/* ================= PHONE OTP MODAL ================= */}
+      <Modal
+        open={phoneModal}
+        onCancel={() => setPhoneModal(false)}
+        footer={null}
+        title="Change Phone Number"
+      >
+        {otpStep === 1 && (
+          <>
+            <Input
+              placeholder="9477xxxxxxx"
+              value={newPhone}
+              onChange={(e) => setNewPhone(e.target.value)}
+            />
+            <Button
+              loading={otpLoading}
+              onClick={sendPhoneOtp}
+              style={styles.primaryBtn}
+            >
+              Send OTP
+            </Button>
+          </>
+        )}
+
+        {otpStep === 2 && (
+          <>
+            <Input
+              placeholder="Enter OTP"
+              value={otp}
+              onChange={(e) => setOtp(e.target.value)}
+            />
+            <Button
+              loading={otpLoading}
+              onClick={verifyPhoneOtp}
+              style={styles.primaryBtn}
+            >
+              Verify OTP
+            </Button>
+          </>
+        )}
+      </Modal>
     </div>
   );
 }
 
 /* ================= STYLES ================= */
 const styles = {
-  page: {
-    padding: 16,
-    background: "#F6F7FB",
-    minHeight: "100vh",
-  },
-
-  heroCard: {
-    textAlign: "center",
-    borderRadius: 20,
-    padding: 24,
-    marginBottom: 16,
-  },
-
-  avatar: {
-    border: `3px solid ${BRAND.primary}`,
-    marginBottom: 12,
-  },
-
-  name: {
-    margin: "8px 0",
-    color: BRAND.dark,
-  },
-
-  uploadBtn: {
-    marginTop: 12,
-    borderColor: BRAND.primary,
-    color: BRAND.primary,
-  },
-
+  page: { padding: 16, background: "#F6F7FB", minHeight: "100vh" },
+  heroCard: { textAlign: "center", borderRadius: 20, marginBottom: 16 },
+  avatar: { border: `3px solid ${BRAND.primary}` },
+  uploadBtn: { marginTop: 12, color: BRAND.primary },
   primaryBtn: {
     background: BRAND.primary,
     borderColor: BRAND.primary,
@@ -328,23 +310,5 @@ const styles = {
     marginTop: 12,
     width: "100%",
   },
-
-  kycCard: {
-    display: "flex",
-    gap: 12,
-    alignItems: "flex-start",
-    background: BRAND.light,
-    borderRadius: 16,
-    marginBottom: 16,
-  },
-
-  kycIcon: {
-    fontSize: 24,
-    color: BRAND.primary,
-    marginTop: 4,
-  },
-
-  card: {
-    borderRadius: 20,
-  },
+  card: { borderRadius: 20 },
 };
